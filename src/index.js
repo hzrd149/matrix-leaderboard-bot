@@ -24,7 +24,7 @@ async function loadFullThread(roomId, eventId) {
   }
 }
 
-async function sendMessageInThread(roomId, threadId, eventId, message){
+async function sendMessageInThread(roomId, threadId, eventId, message) {
   return await client.sendMessage(roomId, {
     msgtype: "m.text",
     body: message,
@@ -36,10 +36,10 @@ async function sendMessageInThread(roomId, threadId, eventId, message){
         event_id: eventId,
       },
     },
-  })
+  });
 }
 
-async function replaceMessage(roomId, eventId, message){
+async function replaceMessage(roomId, eventId, message) {
   return await client.sendMessage(roomId, {
     msgtype: "m.text",
     body: " * " + message,
@@ -71,21 +71,34 @@ onMessage(
     const threadId = content["m.relates_to"]?.event_id;
 
     if (isInThread && threadId) {
+      const me = await client.getUserId();
+
+      // get all the events in the thread
+      const thread = await loadFullThread(roomId, threadId);
+
+      // find leader board message
+      const leaderBoardEvent = Array.from(thread)
+        .reverse()
+        .find((e) => e.sender === me && e.content.body.match(/^leaderboard/i));
+
       if (mentioned) {
         let command = mentioned.toLowerCase();
         if (command.includes("create") || command.includes("start")) {
-          await sendMessageInThread(roomId, threadId, requestEventId, "Leaderboard")
+          if (!leaderBoardEvent) {
+            await sendMessageInThread(
+              roomId,
+              threadId,
+              requestEventId,
+              "Leaderboard"
+            );
+          }
         }
       } else if (body.match(changeScore)) {
-        const me = await client.getUserId();
-
-        // get all the events in the thread
-        const thread = await loadFullThread(roomId, threadId);
         // add the latest event to the top
         thread.unshift(event);
 
+        // recalculate scores
         const scores = new Map();
-
         for (const event of thread) {
           if (event.sender === me) continue;
           const match = event.content.body.match(changeScore);
@@ -96,15 +109,8 @@ onMessage(
           }
         }
 
-        // find leader board message
-        const leaderboard = Array.from(thread)
-          .reverse()
-          .find(
-            (e) => e.sender === me && e.content.body.match(/^leaderboard/i)
-          );
-
-        if (leaderboard) {
-          // update leaderboard
+        // update leaderboard
+        if (leaderBoardEvent) {
           const lines = ["Leaderboard:"];
           for (const [name, score] of scores) {
             const profile = await client.getUserProfile(name);
@@ -112,11 +118,15 @@ onMessage(
           }
           const body = lines.join("\n");
 
-          await replaceMessage(roomId, leaderboard.event_id, body)
+          await replaceMessage(roomId, leaderBoardEvent.event_id, body);
         }
       }
     } else if (mentioned) {
-      await client.replyText(roomId, event, "leader boards only work in threads");
+      await client.replyText(
+        roomId,
+        event,
+        "leader boards only work in threads"
+      );
     }
   }
 );
