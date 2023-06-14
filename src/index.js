@@ -1,12 +1,58 @@
-import {
-  newClient,
-  awaitMoreInput,
-  onMessage,
-  changeAvatar,
-  changeDisplayname,
-} from "matrix-bot-starter";
+import { newClient, onMessage } from "matrix-bot-starter";
 
 const client = await newClient();
+await client.setPresenceStatus("online");
+
+const changeScore = /[\+-]\d+(\.\d\d?)?/;
+
+async function loadFullThread(roomId, eventId) {
+  // copied from https://github.com/turt2live/matrix-bot-sdk/blob/bb93184806317f75cc50c396d9db51f9fe14bdf4/src/MatrixClient.ts#L1974
+  let url = `/_matrix/client/v1/rooms/${encodeURIComponent(
+    roomId
+  )}/relations/${encodeURIComponent(eventId)}/m.thread/m.room.message`;
+
+  let events = [];
+  let token;
+  while (true) {
+    const { chunk, next_batch } = await client.doRequest(
+      "GET",
+      token ? url + "?from=" + token : url
+    );
+    events = events.concat(chunk);
+    if (!next_batch) return events;
+    token = next_batch;
+  }
+}
+
+async function sendMessageInThread(roomId, threadId, eventId, message){
+  return await client.sendMessage(roomId, {
+    msgtype: "m.text",
+    body: message,
+    "m.relates_to": {
+      rel_type: "m.thread",
+      event_id: threadId,
+      is_falling_back: true,
+      "m.in_reply_to": {
+        event_id: eventId,
+      },
+    },
+  })
+}
+
+async function replaceMessage(roomId, eventId, message){
+  return await client.sendMessage(roomId, {
+    msgtype: "m.text",
+    body: " * " + message,
+    "m.new_content": {
+      msgtype: "m.text",
+      body: message,
+    },
+    "m.relates_to": {
+      rel_type: "m.replace",
+      event_id: eventId,
+    },
+  });
+}
 
 onMessage(
   client,
@@ -25,54 +71,59 @@ onMessage(
     const threadId = content["m.relates_to"]?.event_id;
 
     if (isInThread && threadId) {
-      const add = body.match(/\+\d+(\.\d\d?)?/);
-      if (add) {
-        const amount = parseFloat(add[0]);
-
-        console.log(amount);
-      }
-    }
-
-    if (isHtml) {
       if (mentioned) {
         let command = mentioned.toLowerCase();
+        if (command.includes("create") || command.includes("start")) {
+          await sendMessageInThread(roomId, threadId, requestEventId, "Leaderboard")
+        }
+      } else if (body.match(changeScore)) {
+        const me = await client.getUserId();
 
-        if (command.includes("picture") || command.includes("avatar")) {
-          awaitMoreInput(
-            client,
-            roomId,
-            event,
-            true,
-            {
-              description: "avatar change",
-              messageType: "m.image",
-              functionToExecute: changeAvatar,
-            },
-            "Setting new avatar! If your next message is an image, I will update my avatar to that."
+        // get all the events in the thread
+        const thread = await loadFullThread(roomId, threadId);
+        // add the latest event to the top
+        thread.unshift(event);
+
+        const scores = new Map();
+
+        for (const event of thread) {
+          if (event.sender === me) continue;
+          const match = event.content.body.match(changeScore);
+          if (match) {
+            const amount = parseFloat(match[0]);
+            if (!Number.isFinite(amount)) continue;
+            scores.set(event.sender, amount + scores.get(event.sender) || 0);
+          }
+        }
+
+        // find leader board message
+        const leaderboard = Array.from(thread)
+          .reverse()
+          .find(
+            (e) => e.sender === me && e.content.body.match(/^leaderboard/i)
           );
-        } else if (command.includes("name") || command.includes("handle")) {
-          awaitMoreInput(
-            client,
-            roomId,
-            event,
-            true,
-            {
-              description: "display name change",
-              messageType: "m.text",
-              functionToExecute: changeDisplayname,
-            },
-            "Setting new display name! I'll set it to the contents of your next message."
-          );
-        } else {
-          client.replyText(roomId, event, "Unknown command");
+
+        if (leaderboard) {
+          // update leaderboard
+          const lines = ["Leaderboard:"];
+          for (const [name, score] of scores) {
+            const profile = await client.getUserProfile(name);
+            lines.push(`${profile.displayname}: ${score}`);
+          }
+          const body = lines.join("\n");
+
+          await replaceMessage(roomId, leaderboard.event_id, body)
         }
       }
+    } else if (mentioned) {
+      await client.replyText(roomId, event, "leader boards only work in threads");
     }
   }
 );
 
 async function shutdown() {
   console.log("shutting down");
+  await client.setPresenceStatus("offline");
   client.stop();
   process.exit();
 }

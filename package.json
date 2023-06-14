@@ -1,5 +1,5 @@
 {
-  "name": "matrix-scoreboard-bot",
+  "name": "matrix-leaderboard-bot",
   "version": "1.0.0",
   "main": "index.js",
   "type": "module",
