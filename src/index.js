@@ -94,8 +94,7 @@ onMessage(
           }
         }
       } else if (body.match(changeScore)) {
-        // add the latest event to the top
-        thread.unshift(event);
+        console.log(roomId, threadId);
 
         // recalculate scores
         const scores = new Map();
@@ -106,6 +105,7 @@ onMessage(
             const amount = parseFloat(match[0]);
             if (!Number.isFinite(amount)) continue;
             const current = scores.get(event.sender) || 0;
+            console.log(event.event_id, event.sender, amount);
             scores.set(event.sender, amount + current);
           }
         }
