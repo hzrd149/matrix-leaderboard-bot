@@ -3,7 +3,7 @@ import { newClient, onMessage } from "matrix-bot-starter";
 const client = await newClient();
 await client.setPresenceStatus("online");
 
-const changeScore = /[\+-]\d+(\.\d\d?)?/;
+const changeScore = /[\+-]\d+(\.\d+)?/;
 
 async function loadFullThread(roomId, eventId) {
   // copied from https://github.com/turt2live/matrix-bot-sdk/blob/bb93184806317f75cc50c396d9db51f9fe14bdf4/src/MatrixClient.ts#L1974
@@ -99,20 +99,23 @@ onMessage(
 
         // recalculate scores
         const scores = new Map();
-        for (const event of thread) {
+        for (const event of Array.from(thread).reverse()) {
           if (event.sender === me) continue;
           const match = event.content.body.match(changeScore);
           if (match) {
             const amount = parseFloat(match[0]);
             if (!Number.isFinite(amount)) continue;
-            scores.set(event.sender, amount + scores.get(event.sender) || 0);
+            const current = scores.get(event.sender) || 0;
+            scores.set(event.sender, amount + current);
           }
         }
 
-        // update leaderboard
+        const sorted = Array.from(scores.entries()).sort((a, b) => b[1] - a[1]);
+
+        // update leader board
         if (leaderBoardEvent) {
           const lines = ["Leaderboard:"];
-          for (const [name, score] of scores) {
+          for (const [name, score] of sorted) {
             const profile = await client.getUserProfile(name);
             lines.push(`${profile.displayname}: ${score}`);
           }
