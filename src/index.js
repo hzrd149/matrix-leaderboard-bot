@@ -3,7 +3,7 @@ import { newClient, onMessage } from "matrix-bot-starter";
 const client = await newClient();
 await client.setPresenceStatus("online");
 
-const changeScore = /[\+-]\d+(\.\d+)?/;
+const changeScore = /(?:^|\s)[\+-]\d+(\.\d+)?/;
 
 async function loadFullThread(roomId, eventId) {
   // copied from https://github.com/turt2live/matrix-bot-sdk/blob/bb93184806317f75cc50c396d9db51f9fe14bdf4/src/MatrixClient.ts#L1974
